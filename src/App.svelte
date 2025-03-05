@@ -2,6 +2,7 @@
   import Header from './components/Header.svelte';
   import Footer from './components/Footer.svelte';
   import QRCodeGenerator from './components/QRCodeGenerator.svelte';
+  import QRScanner from './components/QRScanner.svelte';
   import { onMount } from 'svelte';
   import { darkMode } from './stores/theme.js';
   
@@ -24,6 +25,7 @@
   <div class="max-w-4xl mx-auto">
     <Header />
     <QRCodeGenerator />
+    <QRScanner />
     <Footer />
   </div>
 </main>

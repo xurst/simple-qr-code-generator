@@ -7,7 +7,35 @@
     { id: 'url', label: 'website url', placeholder: 'https://example.com', format: val => !val.match(/^[a-zA-Z]+:\/\//) ? `https://${val}` : val },
     { id: 'phone', label: 'phone number', placeholder: '+1234567890', format: val => `tel:${val}` },
     { id: 'email', label: 'email address', placeholder: 'example@email.com', format: val => `mailto:${val}` },
-    { id: 'text', label: 'plain text', placeholder: 'your text here', format: val => val }
+    { id: 'text', label: 'plain text', placeholder: 'your text here', format: val => val },
+    { id: 'wifi', label: 'wifi network', placeholder: '', format: (_, params) => `WIFI:S:${params.ssid};T:${params.encryption};P:${params.password};;` },
+    { id: 'geo', label: 'geographic location', placeholder: '', format: (_, params) => `geo:${params.latitude},${params.longitude}` },
+    { id: 'contact', label: 'contact information', placeholder: '', format: (_, params) => {
+      return `BEGIN:VCARD\nVERSION:3.0\nN:${params.lastName};${params.firstName}\nFN:${params.firstName} ${params.lastName}\nTEL:${params.phone}\nEMAIL:${params.email}\nEND:VCARD`;
+    }},
+    { id: 'event', label: 'calendar event', placeholder: '', format: (_, params) => {
+      // Format dates properly for iCalendar format
+      const formatDate = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        return date.toISOString().replace(/-|:|\.\d+/g, '');
+      };
+      
+      const start = formatDate(params.startDate);
+      const end = formatDate(params.endDate);
+      
+      return `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//simple-qr-code-generator//EN
+BEGIN:VEVENT
+SUMMARY:${params.title || 'Event'}
+LOCATION:${params.location || ''}
+DESCRIPTION:${params.description || ''}
+DTSTART:${start}
+DTEND:${end}
+END:VEVENT
+END:VCALENDAR`;
+    }}
   ];
   
   // Settings
@@ -20,8 +48,18 @@
   let scale = 8;
   let margin = 4;
   
+  // Additional parameters for complex QR types
+  let additionalParams = {
+    wifi: { ssid: '', password: '', encryption: 'WPA' },
+    geo: { latitude: '', longitude: '' },
+    contact: { firstName: '', lastName: '', phone: '', email: '' },
+    event: { title: '', location: '', description: '', startDate: '', endDate: '' }
+  };
+  
   // Format the QR data based on the selected type
-  $: formattedData = inputValue ? selectedType.format(inputValue) : '';
+  $: formattedData = inputValue && ['url', 'phone', 'email', 'text'].includes(selectedType.id)
+    ? selectedType.format(inputValue)
+    : selectedType.format('', additionalParams[selectedType.id]);
   
   // Generate QR code whenever the data or settings change
   $: if (formattedData) generateQRCode();
@@ -31,7 +69,8 @@
     if (!formattedData) return;
     
     try {
-      qrDataUrl = await QRCode.toDataURL(formattedData, {
+      // Basic options that work with standard qrcode library
+      const options = {
         errorCorrectionLevel,
         margin: parseInt(margin),
         scale: parseInt(scale),
@@ -39,7 +78,14 @@
           dark: darkColor,
           light: lightColor
         }
-      });
+      };
+      
+      // Generate the QR code
+      qrDataUrl = await QRCode.toDataURL(formattedData, options);
+      
+      // Note for advanced styling: The base qrcode library doesn't support
+      // all styling options. For a production app, you would need to use a dedicated
+      // styling library like qr-code-styling and implement it differently.
     } catch (err) {
       console.error('error generating qr code:', err);
     }
@@ -101,13 +147,121 @@
       
       <div>
         <label for="qr-input" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">enter {selectedType.label}</label>
-        <input 
-        id="qr-input" 
-        type="text" 
-        bind:value={inputValue}
-        placeholder={selectedType.placeholder}
-        class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
-        />
+        {#if ['url', 'phone', 'email', 'text'].includes(selectedType.id)}
+          <input 
+            id="qr-input" 
+            type="text" 
+            bind:value={inputValue}
+            placeholder={selectedType.placeholder}
+            class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+          />
+        {:else if selectedType.id === 'wifi'}
+          <div class="space-y-2">
+            <input 
+              type="text" 
+              bind:value={additionalParams.wifi.ssid}
+              placeholder="Network name (SSID)"
+              class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+            />
+            <input 
+              type="password" 
+              bind:value={additionalParams.wifi.password}
+              placeholder="Password"
+              class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+            />
+            <select 
+              bind:value={additionalParams.wifi.encryption}
+              class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+            >
+              <option value="WPA">WPA/WPA2</option>
+              <option value="WEP">WEP</option>
+              <option value="nopass">No Password</option>
+            </select>
+          </div>
+        {:else if selectedType.id === 'geo'}
+          <div class="space-y-2">
+            <input 
+              type="text" 
+              bind:value={additionalParams.geo.latitude}
+              placeholder="Latitude (e.g. 37.7749)"
+              class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+            />
+            <input 
+              type="text" 
+              bind:value={additionalParams.geo.longitude}
+              placeholder="Longitude (e.g. -122.4194)"
+              class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+            />
+          </div>
+        {:else if selectedType.id === 'contact'}
+          <div class="space-y-2">
+            <input 
+              type="text" 
+              bind:value={additionalParams.contact.firstName}
+              placeholder="First Name"
+              class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+            />
+            <input 
+              type="text" 
+              bind:value={additionalParams.contact.lastName}
+              placeholder="Last Name"
+              class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+            />
+            <input 
+              type="text" 
+              bind:value={additionalParams.contact.phone}
+              placeholder="Phone Number"
+              class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+            />
+            <input 
+              type="email" 
+              bind:value={additionalParams.contact.email}
+              placeholder="Email Address"
+              class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+            />
+          </div>
+        {:else if selectedType.id === 'event'}
+          <div class="space-y-2">
+            <input 
+              type="text" 
+              bind:value={additionalParams.event.title}
+              placeholder="Event Title"
+              class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+            />
+            <input 
+              type="text" 
+              bind:value={additionalParams.event.location}
+              placeholder="Location"
+              class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+            />
+            <textarea 
+              bind:value={additionalParams.event.description}
+              placeholder="Description"
+              class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+              rows="2"
+            ></textarea>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label for="event-start" class="block text-xs text-gray-500 dark:text-gray-400">Start</label>
+                <input 
+                  id="event-start"
+                  type="datetime-local" 
+                  bind:value={additionalParams.event.startDate}
+                  class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+                />
+              </div>
+              <div>
+                <label for="event-end" class="block text-xs text-gray-500 dark:text-gray-400">End</label>
+                <input 
+                  id="event-end"
+                  type="datetime-local" 
+                  bind:value={additionalParams.event.endDate}
+                  class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100"
+                />
+              </div>
+            </div>
+          </div>
+        {/if}
       </div>
       
       <div class="space-y-4">
@@ -116,10 +270,10 @@
         <div>
           <label for="error-level" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">error correction level</label>
           <select 
-          id="error-level" 
-          class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100" 
-          bind:value={errorCorrectionLevel}
-          on:change={generateQRCode}
+            id="error-level" 
+            class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-800 dark:text-gray-100" 
+            bind:value={errorCorrectionLevel}
+            on:change={generateQRCode}
           >
             <option value="L">low (7%)</option>
             <option value="M">medium (15%)</option>
@@ -205,7 +359,7 @@
             on:click={downloadQRCode}
             class="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-300 transition-colors dark:bg-green-600 dark:hover:bg-green-700"
           >
-            download png
+            download qr code
           </button>
         </div>
       {:else}
