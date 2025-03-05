@@ -19,19 +19,6 @@
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
-/* Custom star button animation */
-.star-button {
-  transition: transform 0.2s;
-}
-
-.star-button:hover {
-  transform: scale(1.2);
-}
-
-.star-button.active {
-  color: #eab308; /* Yellow-500 */
-}
-
 /* Custom range slider styling */
 input[type="range"] {
   -webkit-appearance: none;

@@ -8,7 +8,7 @@ a simple qr code generator built with svelte and tailwind css.
   - urls
   - phone numbers
   - email addresses
-  - text messages
+  - text messages & more
 - customize qr code appearance:
   - error correction level
   - colors

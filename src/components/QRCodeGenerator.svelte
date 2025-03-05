@@ -56,7 +56,7 @@ END:VCALENDAR`;
     event: { title: '', location: '', description: '', startDate: '', endDate: '' }
   };
 
-  // Storage for recent and favorite QR codes
+  // Storage for recent QR codes and favorites
   let recentQrCodes = [];
   let favoriteQrCodes = [];
   let showHistory = false;
@@ -72,22 +72,22 @@ END:VCALENDAR`;
     if (selectedType.id === 'url') {
       try {
         const url = new URL(formattedData);
-        return url.hostname;
+        return `URL: ${url.hostname}`;
       } catch (e) {
-        return formattedData.substring(0, 30);
+        return `URL: ${formattedData.substring(0, 30)}`;
       }
     } else if (selectedType.id === 'phone') {
-      return `Phone: ${formattedData.replace('tel:', '')}`;
+      return `phone: ${formattedData.replace('tel:', '')}`;
     } else if (selectedType.id === 'email') {
-      return `Email: ${formattedData.replace('mailto:', '')}`;
+      return `email: ${formattedData.replace('mailto:', '')}`;
     } else if (selectedType.id === 'wifi') {
-      return `WiFi: ${additionalParams.wifi.ssid}`;
+      return `wifi: ${additionalParams.wifi.ssid}`;
     } else if (selectedType.id === 'contact') {
-      return `Contact: ${additionalParams.contact.firstName} ${additionalParams.contact.lastName}`;
+      return `contact: ${additionalParams.contact.firstName} ${additionalParams.contact.lastName}`;
     } else if (selectedType.id === 'event') {
-      return `Event: ${additionalParams.event.title}`;
+      return `event: ${additionalParams.event.title}`;
     } else if (selectedType.id === 'geo') {
-      return `Location: ${additionalParams.geo.latitude},${additionalParams.geo.longitude}`;
+      return `location: ${additionalParams.geo.latitude},${additionalParams.geo.longitude}`;
     } else {
       return formattedData.substring(0, 30) + (formattedData.length > 30 ? '...' : '');
     }
@@ -95,7 +95,9 @@ END:VCALENDAR`;
 
   // Function to generate the QR code
   async function generateQRCode() {
+    // Validate input - prevent empty URLs
     if (!formattedData) return;
+    if (selectedType.id === 'url' && formattedData === 'https://') return;
     
     try {
       // Basic options that work with standard qrcode library
@@ -121,14 +123,13 @@ END:VCALENDAR`;
           data: formattedData,
           imageUrl: qrDataUrl,
           title: generateTitle(),
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          isFavorite: false
         };
         
-        // Add to recent QR codes (avoiding duplicates)
-        if (!recentQrCodes.some(qr => qr.data === formattedData)) {
-          recentQrCodes = [newQrCode, ...recentQrCodes].slice(0, 10);
-          localStorage.setItem('recentQrCodes', JSON.stringify(recentQrCodes));
-        }
+        // Add to recent QR codes without duplication prevention
+        recentQrCodes = [newQrCode, ...recentQrCodes].slice(0, 10);
+        localStorage.setItem('recentQrCodes', JSON.stringify(recentQrCodes));
       }
     } catch (err) {
       console.error('error generating qr code:', err);
@@ -164,27 +165,6 @@ END:VCALENDAR`;
   function handleTypeChange(event) {
     selectedType = types.find(type => type.id === event.target.value);
   }
-  
-  // Function to toggle favorite status
-  function toggleFavorite(qrCode) {
-    const isFavorite = favoriteQrCodes.some(fav => fav.data === qrCode.data);
-    
-    if (isFavorite) {
-      // Remove from favorites
-      favoriteQrCodes = favoriteQrCodes.filter(fav => fav.data !== qrCode.data);
-    } else {
-      // Add to favorites
-      favoriteQrCodes = [qrCode, ...favoriteQrCodes];
-    }
-    
-    localStorage.setItem('favoriteQrCodes', JSON.stringify(favoriteQrCodes));
-  }
-
-  // Check if a QR code is in favorites
-  function isFavorite(qrCode) {
-    if (!qrCode || !qrCode.data) return false;
-    return favoriteQrCodes.some(fav => fav.data === qrCode.data);
-  }
 
   // Load a saved QR code
   function loadQrCode(qrCode) {
@@ -219,7 +199,7 @@ END:VCALENDAR`;
       // Add parsing for other complex types as needed
     }
     
-    // Hide the history panels
+    // Hide the history/favorites panels
     showHistory = false;
     showFavorites = false;
   }
@@ -236,6 +216,8 @@ END:VCALENDAR`;
     
     localStorage.setItem('qrCodeSettings', JSON.stringify(settings));
   }
+
+
 
   // Load settings and history from local storage
   onMount(() => {
@@ -257,31 +239,81 @@ END:VCALENDAR`;
     try {
       const savedRecentCodes = JSON.parse(localStorage.getItem('recentQrCodes'));
       if (savedRecentCodes && Array.isArray(savedRecentCodes)) {
-        recentQrCodes = savedRecentCodes;
+        // Filter out any empty URL QR codes and ensure isFavorite property exists
+        recentQrCodes = savedRecentCodes
+          .filter(qr => !(qr.type === 'url' && (qr.data === 'https://' || !qr.data)))
+          .map(qr => ({
+            ...qr,
+            isFavorite: qr.isFavorite || false
+          }));
+        
+        // Save the cleaned list back to storage
+        localStorage.setItem('recentQrCodes', JSON.stringify(recentQrCodes));
       }
     } catch (e) {
       console.error('Error loading recent QR codes:', e);
     }
-    
-    // Load favorite QR codes
+
+    // Load favorites
     try {
-      const savedFavoriteCodes = JSON.parse(localStorage.getItem('favoriteQrCodes'));
-      if (savedFavoriteCodes && Array.isArray(savedFavoriteCodes)) {
-        favoriteQrCodes = savedFavoriteCodes;
-      }
+      updateFavoritesList();
     } catch (e) {
-      console.error('Error loading favorite QR codes:', e);
+      console.error('Error loading favorites:', e);
     }
     
     // Generate initial QR code
     generateQRCode();
   });
 
-  // Save settings when they change
-  $: {
-    if (typeof window !== 'undefined') {
-      saveSettings();
-    }
+  // Toggle favorite status of a QR code
+  function toggleFavorite(id) {
+    // Update in recent codes
+    recentQrCodes = recentQrCodes.map(qr => {
+      if (qr.id === id) {
+        return { ...qr, isFavorite: !qr.isFavorite };
+      }
+      return qr;
+    });
+    localStorage.setItem('recentQrCodes', JSON.stringify(recentQrCodes));
+    
+    // Update favoriteQrCodes list
+    updateFavoritesList();
+  }
+
+  // Update the favorites list from recent codes
+  function updateFavoritesList() {
+    favoriteQrCodes = recentQrCodes.filter(qr => qr.isFavorite);
+    localStorage.setItem('favoriteQrCodes', JSON.stringify(favoriteQrCodes));
+  }
+
+  // Remove a QR code from favorites
+  function removeFavorite(id) {
+    // Update in recent codes
+    recentQrCodes = recentQrCodes.map(qr => {
+      if (qr.id === id) {
+        return { ...qr, isFavorite: false };
+      }
+      return qr;
+    });
+    localStorage.setItem('recentQrCodes', JSON.stringify(recentQrCodes));
+    
+    // Update favoriteQrCodes list
+    updateFavoritesList();
+  }
+  
+  // Delete a QR code from recents (and favorites if it's favorited)
+  function deleteQRCode(id) {
+    // Remove from recent QR codes
+    recentQrCodes = recentQrCodes.filter(qr => qr.id !== id);
+    localStorage.setItem('recentQrCodes', JSON.stringify(recentQrCodes));
+    
+    // Update favoriteQrCodes list
+    updateFavoritesList();
+  }
+  
+  // Save settings when any of these values change
+  $: if (typeof window !== 'undefined' && errorCorrectionLevel && darkColor && lightColor && scale && margin) {
+    saveSettings();
   }
 </script>
 
@@ -424,10 +456,10 @@ END:VCALENDAR`;
       
       <div class="mt-4">
         <button 
-          on:click={generateQRCode}
-          class="w-full py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300 transition-colors dark:bg-blue-600 dark:hover:bg-blue-700 font-medium"
+        on:click={generateQRCode}
+        class="w-full py-2 bg-blue-500 text-gray-800 dark:text-white rounded-md hover:bg-blue-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-300 transition-colors dark:bg-blue-600 dark:hover:bg-blue-700 font-medium"
         >
-          generate qr code
+        generate qr code
         </button>
       </div>
       
@@ -504,7 +536,7 @@ END:VCALENDAR`;
     
     <!-- QR Code Display Section -->
     <div class="flex flex-col space-y-6">
-      <!-- History/Favorites Buttons -->
+      <!-- History and Favorites Buttons -->
       <div class="flex space-x-4 mb-2">
         <button 
           on:click={() => { showHistory = !showHistory; showFavorites = false; }}
@@ -515,7 +547,6 @@ END:VCALENDAR`;
           </svg>
           recent
         </button>
-        
         <button 
           on:click={() => { showFavorites = !showFavorites; showHistory = false; }}
           class="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300 transition-colors flex items-center"
@@ -528,93 +559,131 @@ END:VCALENDAR`;
       </div>
       
       <!-- Recent QR Codes Panel -->
-      {#if showHistory && recentQrCodes.length > 0}
+      {#if showHistory}
         <div class="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg mb-4 max-h-60 overflow-y-auto">
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">recent qr codes</h4>
-          <div class="grid grid-cols-2 gap-2 qr-history-grid">
-            {#each recentQrCodes as qrCode}
-              <div class="bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-600 flex flex-col items-center qr-thumbnail">
-                <div class="w-full flex justify-between items-center mb-1">
-                  <span class="text-xs text-gray-600 dark:text-gray-400 truncate max-w-[80%]">{qrCode.title || 'QR Code'}</span>
+          {#if recentQrCodes.length > 0}
+            <div class="grid grid-cols-2 gap-2 qr-history-grid">
+              {#each recentQrCodes as qrCode}
+                <div class="bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-600 flex flex-col items-center qr-thumbnail relative">
+                  <!-- Star/Favorite button -->
                   <button 
-                    on:click={() => toggleFavorite(qrCode)}
-                    class="text-gray-400 hover:text-yellow-500 dark:text-gray-500 dark:hover:text-yellow-400 star-button {isFavorite(qrCode) ? 'active' : ''}"
+                    class="absolute top-1 right-1 text-xs p-1"
+                    on:click={(e) => {
+                      e.stopPropagation();
+                      toggleFavorite(qrCode.id);
+                    }}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill={isFavorite(qrCode) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill={qrCode.isFavorite ? '#FFD700' : 'none'} stroke={qrCode.isFavorite ? '#FFD700' : '#aaaaaa'} stroke-width="1">
                       <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                     </svg>
                   </button>
+                  
+                  <!-- Delete button -->
+                  <button 
+                    class="absolute bottom-1 right-1 text-xs p-1"
+                    on:click={(e) => {
+                      e.stopPropagation();
+                      deleteQRCode(qrCode.id);
+                    }}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="none" stroke="#ff6b6b" stroke-width="1.5">
+                      <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                    </svg>
+                  </button>
+                  <div class="w-full flex items-center mb-1">
+                    <span class="text-xs text-gray-600 dark:text-gray-400 truncate">{qrCode.title || 'QR Code'}</span>
+                  </div>
+                  <img 
+                    src={qrCode.imageUrl} 
+                    alt="QR Code" 
+                    class="w-16 h-16 cursor-pointer hover:opacity-80 transition-opacity" 
+                    on:click={() => loadQrCode(qrCode)}
+                  />
                 </div>
-                <img 
-                  src={qrCode.imageUrl} 
-                  alt="QR Code" 
-                  class="w-16 h-16 cursor-pointer hover:opacity-80 transition-opacity" 
-                  on:click={() => loadQrCode(qrCode)}
-                />
-              </div>
-            {/each}
-          </div>
+              {/each}
+            </div>
+          {:else}
+            <div class="text-sm text-gray-500 dark:text-gray-400 text-center p-4">
+              no recents yet. generate a qr code to see it here.
+            </div>
+          {/if}
         </div>
       {/if}
       
       <!-- Favorites QR Codes Panel -->
-      {#if showFavorites && favoriteQrCodes.length > 0}
+      {#if showFavorites}
         <div class="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg mb-4 max-h-60 overflow-y-auto">
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">favorite qr codes</h4>
-          <div class="grid grid-cols-2 gap-2">
-            {#each favoriteQrCodes as qrCode}
-              <div class="bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-600 flex flex-col items-center">
-                <div class="w-full flex justify-between items-center mb-1">
-                  <span class="text-xs text-gray-600 dark:text-gray-400 truncate max-w-[80%]">{qrCode.title || 'QR Code'}</span>
+          {#if favoriteQrCodes.length > 0}
+            <div class="grid grid-cols-2 gap-2 qr-history-grid">
+              {#each favoriteQrCodes as qrCode}
+                <div class="bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-600 flex flex-col items-center qr-thumbnail relative">
+                  <!-- Remove from favorites button -->
                   <button 
-                    on:click={() => toggleFavorite(qrCode)}
-                    class="text-yellow-500 hover:text-gray-400 dark:text-yellow-400 dark:hover:text-gray-500"
+                    class="absolute top-1 right-1 text-xs p-1"
+                    on:click={(e) => {
+                      e.stopPropagation();
+                      removeFavorite(qrCode.id);
+                    }}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="#FFD700" stroke="#FFD700" stroke-width="1">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
                     </svg>
                   </button>
+                  
+                  <!-- Delete button -->
+                  <button 
+                    class="absolute bottom-1 right-1 text-xs p-1"
+                    on:click={(e) => {
+                      e.stopPropagation();
+                      deleteQRCode(qrCode.id);
+                    }}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="none" stroke="#ff6b6b" stroke-width="1.5">
+                      <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                    </svg>
+                  </button>
+                  <div class="w-full flex items-center mb-1">
+                    <span class="text-xs text-gray-600 dark:text-gray-400 truncate">{qrCode.title || 'QR Code'}</span>
+                  </div>
+                  <img 
+                    src={qrCode.imageUrl} 
+                    alt="QR Code" 
+                    class="w-16 h-16 cursor-pointer hover:opacity-80 transition-opacity" 
+                    on:click={() => loadQrCode(qrCode)}
+                  />
                 </div>
-                <img 
-                  src={qrCode.imageUrl} 
-                  alt="QR Code" 
-                  class="w-16 h-16 cursor-pointer hover:opacity-80 transition-opacity" 
-                  on:click={() => loadQrCode(qrCode)}
-                />
-              </div>
-            {/each}
-          </div>
+              {/each}
+            </div>
+          {:else}
+            <div class="text-sm text-gray-500 dark:text-gray-400 text-center p-4">
+              no favorites yet. click the star icon on a qr code to add it to your favorites.
+            </div>
+          {/if}
         </div>
       {/if}
+      
+
       
       {#if qrDataUrl}
         <div class="border border-gray-200 dark:border-gray-700 p-4 rounded-md bg-white dark:bg-gray-700 shadow-sm qr-image-container">
           <img src={qrDataUrl} alt="qr code" class="max-w-full h-auto" />
         </div>
         
-        <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 w-full justify-center">
+        <div class="flex flex-col sm:flex-row gap-4 w-full justify-center">
           <button 
             on:click={copyData}
-            class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300 transition-colors dark:bg-blue-600 dark:hover:bg-blue-700"
+            class="px-10 py-2 bg-blue-500 text-gray-800 dark:text-white rounded-md hover:bg-blue-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-300 transition-colors dark:bg-blue-600 dark:hover:bg-blue-700"
           >
             copy data
           </button>
           
           <button 
             on:click={downloadQRCode}
-            class="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-300 transition-colors dark:bg-green-600 dark:hover:bg-green-700"
+            class="px-14 py-2 bg-green-500 text-gray-800 dark:text-white rounded-md hover:bg-green-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-green-300 transition-colors dark:bg-green-600 dark:hover:bg-green-700"
           >
             download qr code
-          </button>
-          
-          <button 
-            on:click={() => toggleFavorite({id: Date.now().toString(), type: selectedType.id, data: formattedData, imageUrl: qrDataUrl, title: generateTitle(), createdAt: new Date().toISOString()})}
-            class="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-yellow-300 transition-colors dark:bg-yellow-600 dark:hover:bg-yellow-700 flex items-center justify-center"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill={isFavorite({data: formattedData}) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.5">
-              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-            </svg>
-            {isFavorite({data: formattedData}) ? 'unfavorite' : 'favorite'}
           </button>
         </div>
       {:else}
