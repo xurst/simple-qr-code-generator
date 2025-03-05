@@ -1,3 +1,8 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Import custom component styles */
+@import './qr-generator.css';
+
+/* Add any global custom CSS here */

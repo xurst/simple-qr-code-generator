@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import jsQR from 'jsqr'; // Make sure this package is installed via npm
   
   let videoElement;
   let canvasElement;
@@ -7,12 +8,27 @@
   let scannedData = null;
   let error = null;
   let stream = null;
+  let jsQRAvailable = false;
+  
+  onMount(() => {
+    // Check if jsQR is available
+    jsQRAvailable = typeof jsQR === 'function';
+    if (!jsQRAvailable) {
+      error = "QR scanner requires the jsQR library. please run 'npm install jsqr'.";
+    }
+  });
   
   // Function to start the QR code scanner
   async function startScanner() {
     error = null;
     scannedData = null;
     scanning = true;
+    
+    if (!jsQRAvailable) {
+      error = "QR scanner requires the jsQR library. Please run 'npm install jsqr'.";
+      scanning = false;
+      return;
+    }
     
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -59,16 +75,18 @@
       // Try to decode the QR code using the canvas data
       try {
         const imageData = canvas.getImageData(0, 0, canvasElement.width, canvasElement.height);
-        // This is a placeholder - in a real implementation, we would use a library like jsQR to decode the image data
-        // const code = jsQR(imageData.data, imageData.width, imageData.height);
         
-        // For demo purposes, let's simulate finding a QR code after a few seconds
-        setTimeout(() => {
-          if (scanning) {
-            scannedData = "https://example.com";
+        if (jsQRAvailable) {
+          const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: "dontInvert"
+          });
+          
+          if (code) {
+            scannedData = code.data;
             stopScanner();
+            return;
           }
-        }, 3000);
+        }
       } catch (err) {
         console.error("QR scan error:", err);
       }
